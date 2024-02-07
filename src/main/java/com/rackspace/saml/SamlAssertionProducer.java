@@ -1,11 +1,8 @@
 package com.rackspace.saml;
 
 import java.io.ByteArrayOutputStream;
-import java.util.Arrays;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.UUID;
+import java.security.interfaces.RSAPublicKey;
+import java.util.*;
 
 import javax.servlet.http.Cookie;
 import javax.servlet.http.HttpServletRequest;
@@ -46,19 +43,20 @@ import org.opensaml.saml2.core.impl.SubjectConfirmationBuilder;
 import org.opensaml.saml2.core.impl.SubjectConfirmationDataBuilder;
 import org.opensaml.xml.schema.XSString;
 import org.opensaml.xml.schema.impl.XSStringBuilder;
-import org.opensaml.xml.signature.Signature;
-import org.opensaml.xml.signature.SignatureConstants;
-import org.opensaml.xml.signature.Signer;
-import org.opensaml.xml.signature.impl.SignatureBuilder;
+import org.opensaml.xml.security.credential.Credential;
+import org.opensaml.xml.security.x509.BasicX509Credential;
+import org.opensaml.xml.signature.*;
+import org.opensaml.xml.signature.impl.*;
 import org.opensaml.xml.util.XMLHelper;
 import org.w3c.dom.Element;
 
 
+@SuppressWarnings("ALL")
 public class SamlAssertionProducer {
 
 	private String privateKeyLocation;
 	private String publicKeyLocation;
-	private CertManager certManager = new CertManager();
+	private final CertManager certManager = new CertManager();
 	
 	public Response createSAMLResponse(final String subjectId, final DateTime authenticationTime,
 			                           final String credentialType, final HashMap<String, List<String>> attributes, String issuer, Integer samlAssertionDays) {
@@ -89,7 +87,8 @@ public class SamlAssertionProducer {
 			AuthnStatement authnStatement = createAuthnStatement(authenticationTime);
 			
 			Assertion assertion = createAssertion(new DateTime(), subject, assertionIssuer, authnStatement, attributeStatement);
-			
+//			assertion.setSignature(signature);
+
 			Response response = createResponse(new DateTime(), responseIssuer, status, assertion);
 			response.setSignature(signature);
 			
@@ -174,7 +173,7 @@ public class SamlAssertionProducer {
 		NameIDBuilder nameIdBuilder = new NameIDBuilder(); 
 		NameID nameId = nameIdBuilder.buildObject();
 		nameId.setValue(subjectId);
-		nameId.setFormat("urn:oasis:names:tc:SAML:2.0:nameid-format:persistent");
+		nameId.setFormat("urn:oasis:names:tc:SAML:2.0:nameid-format:unspecified");
 	
 		SubjectConfirmationDataBuilder dataBuilder = new SubjectConfirmationDataBuilder();
 		SubjectConfirmationData subjectConfirmationData = dataBuilder.buildObject();
@@ -198,7 +197,7 @@ public class SamlAssertionProducer {
 		// create authcontextclassref object
 		AuthnContextClassRefBuilder classRefBuilder = new AuthnContextClassRefBuilder();
 		AuthnContextClassRef classRef = classRefBuilder.buildObject();
-		classRef.setAuthnContextClassRef("urn:oasis:names:tc:SAML:2.0:ac:classes:PasswordProtectedTransport");
+		classRef.setAuthnContextClassRef("urn:oasis:names:tc:SAML:2.0:ac:classes:unspecified");
 		
 		// create authcontext object
 		AuthnContextBuilder authContextBuilder = new AuthnContextBuilder();
@@ -253,13 +252,50 @@ public class SamlAssertionProducer {
 	
 	private Signature createSignature() throws Throwable {
 		if (publicKeyLocation != null && privateKeyLocation != null) {
+
+
 			SignatureBuilder builder = new SignatureBuilder();
 			Signature signature = builder.buildObject();
-			signature.setSigningCredential(certManager.getSigningCredential(publicKeyLocation, privateKeyLocation));
-			signature.setSignatureAlgorithm(SignatureConstants.ALGO_ID_SIGNATURE_RSA_SHA1);
+			Credential signingCredential = certManager.getSigningCredential(publicKeyLocation, privateKeyLocation);
+			RSAPublicKey publicKey = (RSAPublicKey) signingCredential.getPublicKey();
+			signature.setSigningCredential(signingCredential);
+			signature.setSignatureAlgorithm(SignatureConstants.ALGO_ID_SIGNATURE_RSA_SHA256);
 			signature.setCanonicalizationAlgorithm(SignatureConstants.ALGO_ID_C14N_EXCL_OMIT_COMMENTS);
-			
+
+
+			KeyInfoBuilder keyInfoBuilder = new KeyInfoBuilder();
+			X509DataBuilder x509DataBuilder = new X509DataBuilder();
+			X509Data x509Data = x509DataBuilder.buildObject();
+			X509Certificate x509Certificate = new X509CertificateBuilder().buildObject();
+			x509Certificate.setValue(Base64.getUrlEncoder().encodeToString(((BasicX509Credential)signingCredential).getEntityCertificate().getEncoded()));
+			x509Data.getX509Certificates().add(x509Certificate);
+
+			ModulusBuilder modulusBuilder = new ModulusBuilder();
+			Modulus modulus = modulusBuilder.buildObject();
+			modulus.setValue(
+					Base64.getUrlEncoder().encodeToString(publicKey.getModulus().toByteArray()));
+
+			Exponent exponent = new ExponentBuilder().buildObject();
+			exponent.setValue(Base64.getUrlEncoder().encodeToString(publicKey.getPublicExponent().toByteArray()));
+
+			RSAKeyValue rsaKeyValue = new RSAKeyValueBuilder().buildObject();
+			rsaKeyValue.setModulus(modulus);
+			rsaKeyValue.setExponent(exponent);
+
+			KeyValue keyValue = new KeyValueBuilder().buildObject();
+			keyValue.setRSAKeyValue(rsaKeyValue);
+
+			KeyName keyName = new KeyNameBuilder().buildObject();
+			keyName.setValue("o0lxOjHa_R53BHHZCJ5YoG_vHkXsYJO4T6zAngMVRCo");
+
+			KeyInfo keyInfo = keyInfoBuilder.buildObject();
+			keyInfo.getKeyNames().add(keyName);
+			keyInfo.getKeyValues().add(keyValue);
+			keyInfo.getX509Datas().add(x509Data);
+			signature.setKeyInfo(keyInfo);
+
 			return signature;
+
 		}
 		
 		return null;

@@ -6,6 +6,10 @@ SSO_URL=${SSO_URL:-https://sso.8x8pilot.com/}
 client_id=${client_id:-vom_8_android}
 client_id_64=$(echo -n ${client_id}\: | base64)
 subject=${1-smart.test}
+issuer=${2-com.smart.alpha}
+
+# Empty the cookie jar
+rm -f cookie.txt
 
 # Create the verifier and challenge for PKCE
 
@@ -21,7 +25,7 @@ echo "Subject=${subject}"
 
 # Use the Java app to create the signed SAMLResponse
 
-SAMLResponse=$(java -jar target/saml-generator-1.0.jar -subject ${subject}  -issuer com.smart.alpha -privateKey smart.pkcs8 -publicKey smart.crt | base64)
+SAMLResponse=$(java -jar target/saml-generator-1.0.jar -subject ${subject}  -issuer ${issuer} -privateKey smart.pkcs8 -publicKey smart.crt | base64)
 
 # Authenticate using the SAMLResponse
 # Note the use of a cookie jar, this maintains the authenticated session so we can get an auth code in the next step
